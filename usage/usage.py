@@ -1,52 +1,51 @@
-# Import necessary libraries
+import subprocess
+import re
 import argparse
-import logging
-
-# Set up the argument parser to accept a --debug flag
-parser = argparse.ArgumentParser(
-    description="Extract and display the total energy usage from a snapshot file."
-)
-parser.add_argument("file_path", type=str, help="The path to the snapshot file.")
-parser.add_argument("--debug", action="store_true", help="Enable debug logging.")
-args = parser.parse_args()
-
-# Configure logging based on the --debug flag
-if args.debug:
-    logging.basicConfig(level=logging.DEBUG)
-else:
-    logging.basicConfig(level=logging.INFO)
 
 
-# Define a function to extract the total energy usage with added debug logging
-def extract_total_energy_usage(file_path):
-    logging.debug(f"Opening file: {file_path}")
+def get_powermetrics_output():
+    # Command to run (includes sudo, might require password input)
+    command = ["sudo", "powermetrics", "-i", "1000", "-n", "1"]
 
-    combined_power = 0
-
+    # Execute the command and capture its output
     try:
-        with open(file_path, "r") as file:
-            lines = file.readlines()
-            logging.debug("File read successfully.")
-
-        for line in lines:
-            if "Combined Power" in line:
-                combined_power = float(line.split(":")[1].strip().split(" ")[0])
-                logging.debug(f"Combined Power found: {combined_power} mW")
-                break
-    except FileNotFoundError:
-        logging.error(f"File not found: {file_path}")
-        return None
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
-        return None
-
-    return combined_power
+        output = subprocess.check_output(command, text=True)
+        return output
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing powermetrics: {e}")
+        return ""
 
 
-# Main execution
-if __name__ == "__main__":
-    total_energy_usage = extract_total_energy_usage(args.file_path)
-    if total_energy_usage is not None:
-        print(f"Total Energy Usage: {total_energy_usage} mW")
+def extract_combined_power_usage(powermetrics_output):
+    # Regular expression to find the Combined Power usage line
+    power_usage_pattern = re.compile(r'Combined Power \(CPU \+ GPU \+ ANE\): (\d+) mW')
+
+    # Search for the pattern in the powermetrics output
+    matches = power_usage_pattern.findall(powermetrics_output)
+
+    # Convert all found matches to integers and sum them
+    if matches:
+        power_usages = [int(match) for match in matches]
+        return sum(power_usages)
     else:
-        print("Could not extract total energy usage.")
+        return 0
+
+
+def parse_arguments():
+    parser = argparse.ArgumentParser(description='Calculate total energy usage based on powermetrics output.')
+    parser.add_argument('seconds', type=int, help='Duration in seconds to calculate energy usage for.')
+    args = parser.parse_args()
+    return args.seconds
+
+
+# Main logic
+if __name__ == "__main__":
+    seconds = parse_arguments()
+    powermetrics_output = get_powermetrics_output()
+    if powermetrics_output:
+        total_power_usage = extract_combined_power_usage(powermetrics_output)
+        print(f'Total Combined Power Usage per Second: {total_power_usage} mW')
+        energy_usage = total_power_usage * seconds
+        print(f'Total Energy Usage for {seconds} seconds: {energy_usage} mWs (milliwatt-seconds)')
+    else:
+        print("Failed to get powermetrics data.")
